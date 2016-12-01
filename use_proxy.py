@@ -2,28 +2,22 @@
 # -*- coding: utf-8 -*-
 import os
 import logging
-import get_new_proxy
 from datetime import datetime, timedelta
 from twisted.web._newclient import ResponseNeverReceived
 from twisted.internet.error import *
-
-'''
-本模块是为了使用代理服务器进行传输
-'''
+from twisted.internet import defer
+from twisted.web._newclient import ResponseFailed
+import get_new_proxy
 
 logger = logging.getLogger(__name__)
 
 
 class AutoChangeProxy(object):
     # 遇到这些类型的错误直接当做代理不可用处理掉, 不再传给retrymiddleware
-    DONT_RETRY_ERRORS = (TimeoutError,
-                         ConnectionClosed,
-                         ConnectionLost,
-                         ConnectionDone,
-                         ConnectError,
-                         ConnectionRefusedError,
-                         ResponseNeverReceived,
-                         ValueError)
+    DONT_RETRY_ERRORS = (TimeoutError, DNSLookupError, defer.TimeoutError,
+                         ConnectionClosed, ConnectionLost, ConnectionDone,
+                         ConnectError, ConnectionRefusedError,
+                         ResponseNeverReceived, ValueError, ResponseFailed)
 
     def __init__(self, settings):
         # 当有效代理小于这个数时(包括直连), 从网上抓取新的代理
@@ -84,9 +78,6 @@ class AutoChangeProxy(object):
             self.fetch_new_proxyes()
         logger.info("当前代理池中可用代理数: {}".format(self.len_valid_proxy()))
 
-        logger.info("使用新代理: %s" %
-                    self.proxyes[self.proxy_index]["proxy"])
-
     def set_proxy(self, request):
         """
         将request设置使用为当前的或下一个有效代理
@@ -98,6 +89,9 @@ class AutoChangeProxy(object):
             request.meta["proxy"] = proxy["proxy"]
         elif "proxy" in request.meta.keys():
             del request.meta["proxy"]
+        else:
+            request.meta["proxy"] = None
+
         request.meta["proxy_index"] = self.proxy_index
 
     def del_proxy(self, trash_proxy):
@@ -136,7 +130,7 @@ class AutoChangeProxy(object):
         # status不是正常的200而且不在spider声明的正常爬取过程中可能出现的
         # status列表中, 则认为代理无效, 切换代理
         if response.status != 200 and (response.status not in spider.website_possible_httpstatus_list):
-            logger.info("response 状态码 {},不在 spider.website_possible_httpstatus_list 中".format(response.status))
+            logger.info("{1} 状态码 {0},不在白名单中".format(response.status, response.url))
             # 将当前返回 error 的 proxy 删除
             try:
                 self.del_proxy(request.meta["proxy"])
@@ -152,15 +146,9 @@ class AutoChangeProxy(object):
         """
         处理由于使用代理导致的连接异常
         """
-        try:
-            logger.debug("%s exception: %s" % (self.proxyes[request.meta["proxy_index"]]["proxy"], exception))
-        except:
-            pass
-
         request_proxy_index = request.meta["proxy_index"]
         request_proxy = request.meta['proxy']
 
-        logger.info('Exception: {}'.format(exception))
         if isinstance(exception, self.DONT_RETRY_ERRORS):
             try:
                 self.del_proxy(request_proxy)
@@ -170,3 +158,9 @@ class AutoChangeProxy(object):
             new_request.dont_filter = True
             self.inc_proxy_index()
             return new_request
+        else:
+            logger.warning('丢失的连接: {}'.format(request.url))
+            logger.warning('异常信息: {}'.format(exception))
+            logger.warning('异常类型: {}'.format(type(exception)))
+
+
