@@ -11,7 +11,6 @@ import re
 '''
 
 valid_proxyes = []
-logger = logging.getLogger(__name__)
 
 # 这里写你的获取 API 地址
 # 返回的格式应为 ip:port
@@ -73,6 +72,8 @@ def update():
     多线程处理验证流程。
     加快效率
     '''
+    global valid_proxyes
+    valid_proxyes = []
     proxyes = get_ips_from_api()
     threades = []
     for proxy in proxyes:
@@ -89,4 +90,4 @@ def update():
 if __name__ == '__main__':
     proxyes = update()
     for i in proxyes:
-        logger.info('当前可用 ip: {}'.format(i))
+        logging.warning('当前可用 ip: {}'.format(i))
